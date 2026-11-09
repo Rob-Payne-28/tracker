@@ -1,6 +1,6 @@
 import { Type, type TSchema, type Static } from '@sinclair/typebox';
 
-export const Nullable = <T extends TSchema>(t: T) => Type.Union([t, Type.Null()]);
+export const Nullable = <T extends TSchema>(t: T) => Type.Union([Type.Null(), t]); // null first: avoids AJV coercing null → 0 / ""
 const Id = (description?: string) => Type.Integer({ minimum: 1, description });
 const Timestamp = (description = 'ISO-8601 timestamp') => Type.String({ format: 'date-time', description });
 const DateOnly = (description = 'Calendar date, YYYY-MM-DD') => Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}', description });

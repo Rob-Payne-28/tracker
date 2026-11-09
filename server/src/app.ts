@@ -147,7 +147,9 @@ export async function buildApp(overrides: Partial<Config> = {}): Promise<Fastify
     await app.register(fastifyStatic, { root: webDist, wildcard: false, index: false, maxAge: '1h' });
   }
   app.setNotFoundHandler((req, reply) => {
-    if (req.url.startsWith('/api/') || !webDist || req.method !== 'GET') {
+    const pathname = req.url.split('?')[0];
+    const looksLikeFile = pathname.startsWith('/assets/') || /\.[a-z0-9]{1,5}$/i.test(pathname);
+    if (req.url.startsWith('/api/') || !webDist || req.method !== 'GET' || looksLikeFile) {
       return reply.status(404).send({ kind: 'error', code: 'route_not_found', error: `No route for ${req.method} ${req.url.split('?')[0]}` });
     }
     return reply.header('Cache-Control', 'no-cache').sendFile('index.html');

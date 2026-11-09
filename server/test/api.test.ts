@@ -379,3 +379,12 @@ test('OpenAPI document is served and describes every route', async () => {
   const ui = await app.inject({ method: 'GET', url: '/api/docs' });
   assert.ok(ui.statusCode < 400);
 });
+
+test('explicit nulls are not coerced (estimate: null stays null)', async () => {
+  const chore = await member.post(`/projects/${pid}/stories`, { name: 'Null estimate chore', story_type: 'chore', estimate: null });
+  assert.equal(chore.estimate, null);
+  const f = await member.post(`/projects/${pid}/stories`, { name: 'Estimated', estimate: 3 });
+  const cleared = await member.put(`/projects/${pid}/stories/${f.id}`, { estimate: null, requested_by_id: null });
+  assert.equal(cleared.estimate, null);
+  assert.equal(cleared.requested_by_id, null);
+});

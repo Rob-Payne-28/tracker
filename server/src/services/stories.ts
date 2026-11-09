@@ -466,7 +466,7 @@ export function createStory(ctx: Ctx, acc: Access, user: User | null, input: Sto
       requested_by_id,
       deadline: type === 'release' ? (normDeadline(input.deadline) ?? null) : null,
       accepted_at: state === 'accepted' ? (input.accepted_at ?? ts) : null,
-      started_at: STARTED_STATES.has(state) ? ts : null,
+      started_at: STARTED_STATES.has(state) ? (state === 'accepted' && input.accepted_at && input.accepted_at < ts ? input.accepted_at : ts) : null,
       planned_iteration_number: input.planned_iteration_number ?? null,
       external_id: input.external_id ?? null,
       created_at: ts,

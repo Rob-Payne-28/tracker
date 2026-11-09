@@ -274,6 +274,8 @@ Pass \`velocity\` to see "what if" projections.`,
       const plan = planFor(ctx, p);
       const rows = storyRows(ctx, p.id);
       const pts = (s: StoryRow) => storyPoints(s, p);
+      // Stories created directly as accepted (imports) have no meaningful cycle time.
+      const hasCycle = (s: StoryRow) => !!s.started_at && !!s.accepted_at && Date.parse(s.accepted_at) > Date.parse(s.started_at);
       const tz = p.time_zone;
       const transitions = db.all("SELECT story_id, occurred_at FROM story_transitions WHERE project_id = ? AND state = 'rejected'", [p.id]);
       const limit = (req.query as any).iterations ?? 20;
@@ -286,7 +288,7 @@ Pass \`velocity\` to see "what if" projections.`,
         cumulative += points;
         if (it.scope === 'done' && it.team_strength > 0) normalised.push((points / it.team_strength) * (p.iteration_length / it.length));
         const recent = normalised.slice(-p.velocity_averaged_over);
-        const cycles = accepted.filter((s) => s.started_at && s.accepted_at).map((s) => (Date.parse(s.accepted_at!) - Date.parse(s.started_at!)) / 3600_000);
+        const cycles = accepted.filter(hasCycle).map((s) => (Date.parse(s.accepted_at!) - Date.parse(s.started_at!)) / 3600_000);
         const finish = it.finish;
         return {
           number: it.number,
@@ -298,7 +300,12 @@ Pass \`velocity\` to see "what if" projections.`,
           rolling_velocity: recent.length ? Math.round((recent.reduce((x, y) => x + y, 0) / recent.length) * 10) / 10 : p.initial_velocity,
           cumulative_points_accepted: cumulative,
           scope_points: rows
-            .filter((s) => localDate(s.created_at, tz) < finish && (s.current_state !== 'unscheduled' || (s.accepted_at && localDate(s.accepted_at, tz) < finish)))
+            .filter(
+              (s) =>
+                // Anything accepted by then was in scope, even if it was created (e.g. imported) later.
+                (s.accepted_at && localDate(s.accepted_at, tz) < finish) ||
+                (localDate(s.created_at, tz) < finish && s.current_state !== 'unscheduled'),
+            )
             .reduce((n, s) => n + pts(s), 0),
           stories_accepted: accepted.length,
           features_accepted: accepted.filter((s) => s.story_type === 'feature').length,
@@ -321,7 +328,7 @@ Pass \`velocity\` to see "what if" projections.`,
       }
       const backlogIds = new Set(plan.iterations.filter((i) => i.scope === 'backlog').flatMap((i) => i.story_ids).concat(plan.unplanned_ids));
       const cycle_times = rows
-        .filter((s) => s.current_state === 'accepted' && s.started_at && s.accepted_at)
+        .filter((s) => s.current_state === 'accepted' && hasCycle(s))
         .sort((x, y) => y.accepted_at!.localeCompare(x.accepted_at!))
         .slice(0, 100)
         .map((s) => ({

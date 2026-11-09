@@ -289,6 +289,9 @@
           "role": {
             "anyOf": [
               {
+                "type": "null"
+              },
+              {
                 "description": "owner: full control incl. settings & members; member: edit stories; viewer: read-only",
                 "anyOf": [
                   {
@@ -310,9 +313,6 @@
                     ]
                   }
                 ]
-              },
-              {
-                "type": "null"
               }
             ]
           },
@@ -384,12 +384,12 @@
           "last_viewed_at": {
             "anyOf": [
               {
+                "type": "null"
+              },
+              {
                 "format": "date-time",
                 "description": "ISO-8601 timestamp",
                 "type": "string"
-              },
-              {
-                "type": "null"
               }
             ]
           },
@@ -470,10 +470,10 @@
           "epic_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ]
           },
@@ -624,11 +624,11 @@
           "estimate": {
             "anyOf": [
               {
-                "description": "Points; null if unestimated",
-                "type": "number"
+                "type": "null"
               },
               {
-                "type": "null"
+                "description": "Points; null if unestimated",
+                "type": "number"
               }
             ]
           },
@@ -639,10 +639,10 @@
           "requested_by_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ]
           },
@@ -673,57 +673,57 @@
           "deadline": {
             "anyOf": [
               {
+                "type": "null"
+              },
+              {
                 "pattern": "^\\d{4}-\\d{2}-\\d{2}",
                 "description": "Release deadline (release stories only)",
                 "type": "string"
-              },
-              {
-                "type": "null"
               }
             ]
           },
           "accepted_at": {
             "anyOf": [
               {
+                "type": "null"
+              },
+              {
                 "format": "date-time",
                 "description": "ISO-8601 timestamp",
                 "type": "string"
-              },
-              {
-                "type": "null"
               }
             ]
           },
           "started_at": {
             "anyOf": [
               {
+                "type": "null"
+              },
+              {
                 "format": "date-time",
                 "description": "ISO-8601 timestamp",
                 "type": "string"
-              },
-              {
-                "type": "null"
               }
             ]
           },
           "planned_iteration_number": {
             "anyOf": [
               {
-                "description": "Manual planning: iteration the story is planned for",
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "description": "Manual planning: iteration the story is planned for",
+                "type": "integer"
               }
             ]
           },
           "external_id": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "string"
               }
             ]
           },
@@ -856,20 +856,20 @@
           "comment_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ]
           },
           "uploader_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ]
           },
@@ -925,30 +925,30 @@
           "story_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ]
           },
           "epic_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ]
           },
           "person_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ]
           },
@@ -959,20 +959,20 @@
           "commit_identifier": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "string"
               }
             ]
           },
           "commit_type": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "string"
               }
             ]
           },
@@ -1023,10 +1023,10 @@
           "person_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ]
           },
@@ -1085,10 +1085,10 @@
           "reviewer_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ]
           },
@@ -1314,11 +1314,11 @@
           "estimate": {
             "anyOf": [
               {
-                "description": "Points; null if unestimated",
-                "type": "number"
+                "type": "null"
               },
               {
-                "type": "null"
+                "description": "Points; null if unestimated",
+                "type": "number"
               }
             ]
           },
@@ -1329,10 +1329,10 @@
           "requested_by_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ]
           },
@@ -1363,57 +1363,57 @@
           "deadline": {
             "anyOf": [
               {
+                "type": "null"
+              },
+              {
                 "pattern": "^\\d{4}-\\d{2}-\\d{2}",
                 "description": "Release deadline (release stories only)",
                 "type": "string"
-              },
-              {
-                "type": "null"
               }
             ]
           },
           "accepted_at": {
             "anyOf": [
               {
+                "type": "null"
+              },
+              {
                 "format": "date-time",
                 "description": "ISO-8601 timestamp",
                 "type": "string"
-              },
-              {
-                "type": "null"
               }
             ]
           },
           "started_at": {
             "anyOf": [
               {
+                "type": "null"
+              },
+              {
                 "format": "date-time",
                 "description": "ISO-8601 timestamp",
                 "type": "string"
-              },
-              {
-                "type": "null"
               }
             ]
           },
           "planned_iteration_number": {
             "anyOf": [
               {
-                "description": "Manual planning: iteration the story is planned for",
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "description": "Manual planning: iteration the story is planned for",
+                "type": "integer"
               }
             ]
           },
           "external_id": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "string"
               }
             ]
           },
@@ -1655,11 +1655,11 @@
           "capacity": {
             "anyOf": [
               {
-                "description": "Projected point capacity (velocity × strength × length)",
-                "type": "number"
+                "type": "null"
               },
               {
-                "type": "null"
+                "description": "Projected point capacity (velocity × strength × length)",
+                "type": "number"
               }
             ]
           },
@@ -1693,22 +1693,22 @@
           "iteration_number": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ]
           },
           "projected_completion": {
             "anyOf": [
               {
+                "type": "null"
+              },
+              {
                 "pattern": "^\\d{4}-\\d{2}-\\d{2}",
                 "description": "Calendar date, YYYY-MM-DD",
                 "type": "string"
-              },
-              {
-                "type": "null"
               }
             ]
           },
@@ -1798,10 +1798,10 @@
           "performed_by": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Person"
+                "type": "null"
               },
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Person"
               }
             ]
           },
@@ -1848,25 +1848,28 @@
           "context": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "string"
               }
             ]
           },
           "performer": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Person"
+                "type": "null"
               },
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Person"
               }
             ]
           },
           "project": {
             "anyOf": [
+              {
+                "type": "null"
+              },
               {
                 "type": "object",
                 "required": [
@@ -1888,14 +1891,14 @@
                     "type": "string"
                   }
                 }
-              },
-              {
-                "type": "null"
               }
             ]
           },
           "story": {
             "anyOf": [
+              {
+                "type": "null"
+              },
               {
                 "type": "object",
                 "required": [
@@ -1921,31 +1924,28 @@
                     "type": "string"
                   }
                 }
-              },
-              {
-                "type": "null"
               }
             ]
           },
           "epic_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ]
           },
           "read_at": {
             "anyOf": [
               {
+                "type": "null"
+              },
+              {
                 "format": "date-time",
                 "description": "ISO-8601 timestamp",
                 "type": "string"
-              },
-              {
-                "type": "null"
               }
             ]
           },
@@ -2040,32 +2040,32 @@
           "last_status": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "integer"
               }
             ]
           },
           "last_error": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "null"
               },
               {
-                "type": "null"
+                "type": "string"
               }
             ]
           },
           "last_delivered_at": {
             "anyOf": [
               {
+                "type": "null"
+              },
+              {
                 "format": "date-time",
                 "description": "ISO-8601 timestamp",
                 "type": "string"
-              },
-              {
-                "type": "null"
               }
             ]
           },
@@ -2107,11 +2107,11 @@
           "length": {
             "anyOf": [
               {
-                "description": "Weeks; null = project default",
-                "type": "integer"
+                "type": "null"
               },
               {
-                "type": "null"
+                "description": "Weeks; null = project default",
+                "type": "integer"
               }
             ]
           },
@@ -3708,20 +3708,20 @@
                   "before_id": {
                     "anyOf": [
                       {
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "type": "integer"
                       }
                     ]
                   },
                   "after_id": {
                     "anyOf": [
                       {
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "type": "integer"
                       }
                     ]
                   }
@@ -3849,20 +3849,20 @@
                   "before_id": {
                     "anyOf": [
                       {
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "type": "integer"
                       }
                     ]
                   },
                   "after_id": {
                     "anyOf": [
                       {
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "type": "integer"
                       }
                     ]
                   }
@@ -4023,12 +4023,12 @@
                   "length": {
                     "anyOf": [
                       {
+                        "type": "null"
+                      },
+                      {
                         "minimum": 1,
                         "maximum": 8,
                         "type": "integer"
-                      },
-                      {
-                        "type": "null"
                       }
                     ]
                   },
@@ -4395,20 +4395,20 @@
                     "status": {
                       "anyOf": [
                         {
-                          "type": "integer"
+                          "type": "null"
                         },
                         {
-                          "type": "null"
+                          "type": "integer"
                         }
                       ]
                     },
                     "error": {
                       "anyOf": [
                         {
-                          "type": "string"
+                          "type": "null"
                         },
                         {
-                          "type": "null"
+                          "type": "string"
                         }
                       ]
                     }
@@ -4970,20 +4970,20 @@
                   "estimate": {
                     "anyOf": [
                       {
-                        "type": "number"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "type": "number"
                       }
                     ]
                   },
                   "requested_by_id": {
                     "anyOf": [
                       {
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "type": "integer"
                       }
                     ]
                   },
@@ -5034,66 +5034,66 @@
                   "deadline": {
                     "anyOf": [
                       {
-                        "description": "Release deadline (YYYY-MM-DD)",
-                        "type": "string"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "description": "Release deadline (YYYY-MM-DD)",
+                        "type": "string"
                       }
                     ]
                   },
                   "accepted_at": {
                     "anyOf": [
                       {
-                        "description": "Override acceptance time when accepting (e.g. for imports)",
-                        "type": "string"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "description": "Override acceptance time when accepting (e.g. for imports)",
+                        "type": "string"
                       }
                     ]
                   },
                   "planned_iteration_number": {
                     "anyOf": [
                       {
-                        "minimum": 1,
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "minimum": 1,
+                        "type": "integer"
                       }
                     ]
                   },
                   "external_id": {
                     "anyOf": [
                       {
-                        "maxLength": 255,
-                        "type": "string"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "maxLength": 255,
+                        "type": "string"
                       }
                     ]
                   },
                   "before_id": {
                     "anyOf": [
                       {
-                        "description": "Place the story immediately before (above) this story",
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "description": "Place the story immediately before (above) this story",
+                        "type": "integer"
                       }
                     ]
                   },
                   "after_id": {
                     "anyOf": [
                       {
-                        "description": "Place the story immediately after (below) this story",
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "description": "Place the story immediately after (below) this story",
+                        "type": "integer"
                       }
                     ]
                   },
@@ -5309,20 +5309,20 @@
                   "estimate": {
                     "anyOf": [
                       {
-                        "type": "number"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "type": "number"
                       }
                     ]
                   },
                   "requested_by_id": {
                     "anyOf": [
                       {
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "type": "integer"
                       }
                     ]
                   },
@@ -5373,66 +5373,66 @@
                   "deadline": {
                     "anyOf": [
                       {
-                        "description": "Release deadline (YYYY-MM-DD)",
-                        "type": "string"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "description": "Release deadline (YYYY-MM-DD)",
+                        "type": "string"
                       }
                     ]
                   },
                   "accepted_at": {
                     "anyOf": [
                       {
-                        "description": "Override acceptance time when accepting (e.g. for imports)",
-                        "type": "string"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "description": "Override acceptance time when accepting (e.g. for imports)",
+                        "type": "string"
                       }
                     ]
                   },
                   "planned_iteration_number": {
                     "anyOf": [
                       {
-                        "minimum": 1,
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "minimum": 1,
+                        "type": "integer"
                       }
                     ]
                   },
                   "external_id": {
                     "anyOf": [
                       {
-                        "maxLength": 255,
-                        "type": "string"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "maxLength": 255,
+                        "type": "string"
                       }
                     ]
                   },
                   "before_id": {
                     "anyOf": [
                       {
-                        "description": "Place the story immediately before (above) this story",
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "description": "Place the story immediately before (above) this story",
+                        "type": "integer"
                       }
                     ]
                   },
                   "after_id": {
                     "anyOf": [
                       {
-                        "description": "Place the story immediately after (below) this story",
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "description": "Place the story immediately after (below) this story",
+                        "type": "integer"
                       }
                     ]
                   },
@@ -5843,10 +5843,10 @@
                   "estimate": {
                     "anyOf": [
                       {
-                        "type": "number"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "type": "number"
                       }
                     ]
                   },
@@ -7254,10 +7254,10 @@
                   "reviewer_id": {
                     "anyOf": [
                       {
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "type": "integer"
                       }
                     ]
                   },
@@ -7360,10 +7360,10 @@
                   "reviewer_id": {
                     "anyOf": [
                       {
-                        "type": "integer"
+                        "type": "null"
                       },
                       {
-                        "type": "null"
+                        "type": "integer"
                       }
                     ]
                   },
