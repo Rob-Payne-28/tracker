@@ -3,10 +3,20 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import type { Config } from '../src/config.js';
 
-export async function testApp(): Promise<FastifyInstance & { cleanup: () => Promise<void> }> {
+export async function testApp(overrides: Partial<Config> = {}): Promise<FastifyInstance & { cleanup: () => Promise<void> }> {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-test-'));
-  const app = await buildApp({ dataDir, databaseFile: ':memory:', logLevel: 'silent', baseUrl: 'http://tracker.test', webDist: null });
+  const app = await buildApp({
+    dataDir,
+    databaseFile: ':memory:',
+    logLevel: 'silent',
+    baseUrl: 'http://tracker.test',
+    webDist: null,
+    // Tests deliver webhooks to a receiver on 127.0.0.1; production blocks private addresses by default.
+    webhookAllowPrivate: true,
+    ...overrides,
+  });
   await app.ready();
   return Object.assign(app, {
     cleanup: async () => {

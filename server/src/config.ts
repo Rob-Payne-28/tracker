@@ -20,6 +20,10 @@ export interface Config {
   webDist: string | null;
   logLevel: string;
   trustProxy: boolean;
+  /** Allow webhooks to private/loopback/link-local addresses (SSRF risk; off by default). */
+  webhookAllowPrivate: boolean;
+  /** Maximum concurrent realtime streams per user. */
+  maxStreamsPerUser: number;
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
@@ -40,7 +44,26 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     webDist: env.WEB_DIST ?? path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../web/dist'),
     logLevel: env.LOG_LEVEL ?? 'info',
     trustProxy: bool(env.TRUST_PROXY, false),
+    webhookAllowPrivate: bool(env.WEBHOOK_ALLOW_PRIVATE, false),
+    maxStreamsPerUser: Number(env.MAX_STREAMS_PER_USER ?? 20),
     ...overrides,
   };
+  validateConfig(cfg);
   return cfg;
+}
+
+/** Fail fast on misconfiguration instead of misbehaving later. */
+export function validateConfig(cfg: Config) {
+  const problems: string[] = [];
+  if (!Number.isInteger(cfg.port) || cfg.port < 0 || cfg.port > 65535) problems.push(`PORT must be 0-65535 (got ${cfg.port})`);
+  try {
+    const u = new URL(cfg.baseUrl);
+    if (!['http:', 'https:'].includes(u.protocol)) problems.push('BASE_URL must be an http(s) URL');
+  } catch {
+    problems.push(`BASE_URL is not a valid URL (got "${cfg.baseUrl}")`);
+  }
+  if (!(cfg.maxUploadBytes > 0)) problems.push('MAX_UPLOAD_MB must be a positive number');
+  if (!(cfg.sessionDays > 0)) problems.push('SESSION_DAYS must be a positive number');
+  if (!(cfg.maxStreamsPerUser > 0)) problems.push('MAX_STREAMS_PER_USER must be a positive number');
+  if (problems.length) throw new Error(`Invalid configuration:\n  - ${problems.join('\n  - ')}`);
 }

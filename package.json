@@ -3,13 +3,25 @@
   "private": true,
   "version": "1.0.0",
   "description": "Self-hostable agile project tracker with velocity-based iteration planning and a fully documented REST API.",
-  "workspaces": ["server", "web"],
+  "workspaces": [
+    "server",
+    "web"
+  ],
   "scripts": {
     "dev": "npm run dev --workspace server & npm run dev --workspace web",
     "build": "npm run build --workspace web && npm run build --workspace server",
     "start": "npm run start --workspace server",
     "test": "npm test --workspace server",
-    "openapi": "npm run openapi --workspace server"
+    "openapi": "npm run openapi --workspace server",
+    "test:e2e": "node --test e2e/*.test.mjs",
+    "test:coverage": "npm run test:coverage --workspace server",
+    "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace web",
+    "check:openapi": "npm run openapi && git diff --exit-code docs/openapi.json"
   },
-  "engines": { "node": ">=22.13" }
+  "engines": {
+    "node": ">=22.13"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
 }

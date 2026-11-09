@@ -3,7 +3,9 @@ import { Type } from '@sinclair/typebox';
 import { requireUser } from '../app.js';
 import { ref, Ok, ProjectCreate, ProjectUpdate, ProjectParams, RoleEnum, Nullable } from '../schemas.js';
 import { access, getProject, membershipsFor, projectJson, type Project, type Role } from '../services/projects.js';
-import { recordActivity, deliverOne } from '../services/activity.js';
+import { recordActivity } from '../services/activity.js';
+import { deliverOne } from '../services/webhooks.js';
+import { assertSafeWebhookUrl } from '../lib/net.js';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { alignToWeekday, isValidDate, isValidTimeZone, localDate, type Weekday } from '../lib/dates.js';
 import { now, type Row } from '../db/index.js';
@@ -15,6 +17,16 @@ import type { Ctx } from '../services/context.js';
 const POINT_SCALES: Record<string, string> = { fibonacci: '0,1,2,3,5,8', linear: '0,1,2,3', powers_of_two: '0,1,2,4,8' };
 const DEFAULT_REVIEW_TYPES = ['Test (QA)', 'Design', 'Code', 'Security'];
 const COLORS = ['#2b6cb0', '#2f855a', '#c05621', '#6b46c1', '#b83280', '#2c7a7b', '#975a16', '#c53030'];
+
+/** Columns a project owner may change. Anything else in a request body is ignored. */
+const UPDATABLE_PROJECT_FIELDS = [
+  'name', 'description', 'iteration_length', 'week_start_day', 'point_scale', 'initial_velocity', 'velocity_averaged_over',
+  'bugs_and_chores_are_estimatable', 'automatic_planning', 'enable_tasks', 'public', 'archived', 'start_date', 'time_zone',
+] as const;
+
+function pick<T extends Record<string, unknown>>(obj: T, keys: readonly string[]): Partial<T> {
+  return Object.fromEntries(keys.filter((k) => obj[k] !== undefined).map((k) => [k, obj[k]])) as Partial<T>;
+}
 
 export function normalizePointScale(v: string): string {
   const preset = POINT_SCALES[v.trim().toLowerCase()];
@@ -222,7 +234,7 @@ export async function projectRoutes(app: FastifyInstance) {
     async (req) => {
       const u = requireUser(req);
       const a = access(ctx, pid(req), u, 'owner');
-      const b = validateProjectFields({ ...(req.body as any) });
+      const b = validateProjectFields(pick(req.body as any, UPDATABLE_PROJECT_FIELDS));
       if (b.name !== undefined) b.name = b.name.trim();
       ctx.tx(() => {
         const before = a.project as any;
@@ -369,6 +381,7 @@ export async function projectRoutes(app: FastifyInstance) {
       const a = access(ctx, pid(req), u, 'viewer');
       const m = db.get('SELECT * FROM memberships WHERE id = ? AND project_id = ?', [membership_id, a.project.id]);
       if (!m) throw notFound('Membership');
+      if (m.user_id !== u.id && a.role !== 'owner') throw forbidden('Only project owners can change other members.');
       const b = req.body as any;
       if (b.role !== undefined && b.role !== m.role) {
         if (a.role !== 'owner') throw forbidden('Only project owners can change roles.');
@@ -811,14 +824,7 @@ export async function projectRoutes(app: FastifyInstance) {
     if (!w) throw notFound('Webhook');
     return w;
   };
-  const validUrl = (u: string) => {
-    try {
-      const url = new URL(u);
-      if (!['http:', 'https:'].includes(url.protocol)) throw 0;
-    } catch {
-      throw badRequest('Webhook url must be an http(s) URL.');
-    }
-  };
+  const validUrl = (u: string) => assertSafeWebhookUrl(u, ctx.config.webhookAllowPrivate);
 
   app.get(
     '/projects/:project_id/webhooks',
@@ -844,7 +850,7 @@ export async function projectRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const a = access(ctx, pid(req), requireUser(req), 'owner');
       const b = req.body as any;
-      validUrl(b.url);
+      await validUrl(b.url);
       const ts = now();
       const id = db.insert('webhooks', { project_id: a.project.id, url: b.url, secret: randomToken(24), enabled: b.enabled === false ? 0 : 1, created_at: ts, updated_at: ts });
       return reply.status(201).send(webhookJson(hookRow(a.project.id, id)));
@@ -866,7 +872,7 @@ export async function projectRoutes(app: FastifyInstance) {
       const a = access(ctx, pid(req), requireUser(req), 'owner');
       const w = hookRow(a.project.id, (req.params as any).webhook_id);
       const b = req.body as any;
-      if (b.url) validUrl(b.url);
+      if (b.url) await validUrl(b.url);
       db.update('webhooks', w.id, {
         ...(b.url ? { url: b.url } : {}),
         ...(b.enabled !== undefined ? { enabled: b.enabled ? 1 : 0 } : {}),

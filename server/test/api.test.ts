@@ -388,3 +388,69 @@ test('explicit nulls are not coerced (estimate: null stays null)', async () => {
   assert.equal(cleared.estimate, null);
   assert.equal(cleared.requested_by_id, null);
 });
+
+test('push webhooks from each provider are parsed by their adapter', async () => {
+  const s = await member.post(`/projects/${pid}/stories`, { name: 'Adapter story' });
+  const push = (headers: Record<string, string>, payload: unknown) =>
+    app.inject({ method: 'POST', url: `/api/v1/integrations/vcs?token=${member.token}`, headers, payload: payload as any });
+
+  const gh = await push({ 'x-github-event': 'push' }, { commits: [{ id: 'g1', message: `[#${s.id}] github`, url: 'https://gh/c/g1', author: { name: 'G' } }] });
+  assert.equal(JSON.parse(gh.body).provider, 'github');
+  const ping = await push({ 'x-github-event': 'ping' }, { zen: 'hi' });
+  assert.equal(JSON.parse(ping.body).processed, 0, 'non-push events are acknowledged');
+  const gl = await push({ 'x-gitlab-event': 'Push Hook' }, { commits: [{ id: 'l1', message: `[#${s.id}] gitlab` }] });
+  assert.equal(JSON.parse(gl.body).provider, 'gitlab');
+  const bb = await push(
+    { 'x-event-key': 'repo:push' },
+    { push: { changes: [{ commits: [{ hash: 'b2', message: `[#${s.id}] second` }, { hash: 'b1', message: `[#${s.id}] bitbucket`, author: { raw: 'Bee <b@x>' }, links: { html: { href: 'https://bb/c/b1' } } }] }] } },
+  );
+  const bbBody = JSON.parse(bb.body);
+  assert.equal(bbBody.provider, 'bitbucket');
+  assert.equal(bbBody.processed, 2);
+  const bad = await push({}, { hello: 'world' });
+  assert.equal(bad.statusCode, 400);
+
+  const story = await member.get(`/projects/${pid}/stories/${s.id}`);
+  assert.deepEqual(
+    story.comments.map((c: any) => [c.commit_type, c.commit_identifier]),
+    [['github', 'g1'], ['gitlab', 'l1'], ['bitbucket', 'b1'], ['bitbucket', 'b2']],
+    'Bitbucket commits are processed oldest first',
+  );
+});
+
+test('activity sinks: integrations can subscribe, and a failing sink is isolated', async () => {
+  const seen: string[] = [];
+  const offBroken = app.ctx.onActivity('broken', () => {
+    throw new Error('integration bug');
+  });
+  const offGood = app.ctx.onActivity('recorder', (projectId, activity) => seen.push(`${projectId}:${activity.kind}`));
+  const errors = console.error;
+  console.error = () => {}; // the isolated failure is logged; keep test output clean
+  try {
+    const s = await member.post(`/projects/${pid}/stories`, { name: 'Sink story' });
+    assert.equal(s.name, 'Sink story', 'request succeeds despite the broken sink');
+    assert.deepEqual(seen, [`${pid}:story_create_activity`]);
+  } finally {
+    console.error = errors;
+    offBroken();
+    offGood();
+  }
+  await member.post(`/projects/${pid}/stories`, { name: 'After unsubscribe' });
+  assert.equal(seen.length, 1, 'unsubscribed sinks receive nothing');
+});
+
+test('activities are not emitted for rolled-back transactions', async () => {
+  const seen: string[] = [];
+  const off = app.ctx.onActivity('recorder', (_p, a) => seen.push(a.kind));
+  try {
+    // Bulk update is atomic: the second id is invalid, so the first story's update must roll back.
+    const s = await member.post(`/projects/${pid}/stories`, { name: 'Atomic', current_state: 'unstarted' });
+    seen.length = 0;
+    const r = await member.req('PUT', `/projects/${pid}/stories/bulk`, { story_ids: [s.id, 99999999], add_labels: ['nope'] });
+    assert.equal(r.status, 404);
+    assert.deepEqual(seen, []);
+    assert.deepEqual((await member.get(`/projects/${pid}/stories/${s.id}`)).labels, []);
+  } finally {
+    off();
+  }
+});

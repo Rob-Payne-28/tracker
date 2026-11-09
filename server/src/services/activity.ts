@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import type { Ctx } from './context.js';
 import type { User } from './people.js';
 import { personJson } from './people.js';
@@ -61,12 +60,12 @@ export function recordActivity(ctx: Ctx, input: ActivityInput) {
     db.run('INSERT OR IGNORE INTO activity_stories (activity_id, story_id) VALUES (?, ?)', [id, sid]);
   }
   const activity = activityJson(ctx, db.get('SELECT * FROM activities WHERE id = ?', [id])!);
-  ctx.afterCommit(() => {
-    ctx.events.publish(`project:${input.project_id}`, { type: 'activity', project_id: input.project_id, data: activity });
-    deliverWebhooks(ctx, input.project_id, activity);
-  });
+  // Fan out to every registered sink (realtime stream, webhooks, …) once the transaction commits.
+  ctx.afterCommit(() => ctx.emitActivity(input.project_id, activity));
   return activity;
 }
+
+export type ActivityJson = ReturnType<typeof activityJson>;
 
 export function activityJson(ctx: Ctx, a: Row, people?: Map<number, Row>, projects?: Map<number, Row>) {
   const performer = a.performed_by_id
@@ -106,57 +105,6 @@ export function listActivities(ctx: Ctx, where: string, params: any[], limit: nu
       people.set(p.id, p);
   }
   return { items: rows.map((r) => activityJson(ctx, r, people)), total };
-}
-
-// ---------------------------------------------------------------------------------------------
-// Webhooks
-
-export function signPayload(secret: string, body: string) {
-  return 'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
-}
-
-function deliverWebhooks(ctx: Ctx, projectId: number, activity: unknown) {
-  let hooks: Row[];
-  try {
-    hooks = ctx.db.all('SELECT * FROM webhooks WHERE project_id = ? AND enabled = 1', [projectId]);
-  } catch {
-    return; // database closed (e.g. during shutdown/tests)
-  }
-  for (const hook of hooks) void deliverOne(ctx, hook, activity);
-}
-
-export async function deliverOne(ctx: Ctx, hook: Row, payload: unknown): Promise<{ status: number | null; error: string | null }> {
-  const body = JSON.stringify(payload);
-  let status: number | null = null;
-  let error: string | null = null;
-  try {
-    const res = await fetch(hook.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Tracker-Webhooks/1.0',
-        'X-Tracker-Signature': signPayload(hook.secret, body),
-        'X-Tracker-Webhook-Id': String(hook.id),
-      },
-      body,
-      signal: AbortSignal.timeout(10_000),
-    });
-    status = res.status;
-    if (!res.ok) error = `HTTP ${res.status}`;
-  } catch (e: any) {
-    error = String(e?.message ?? e);
-  }
-  try {
-    ctx.db.run('UPDATE webhooks SET last_status = ?, last_error = ?, last_delivered_at = ? WHERE id = ?', [
-      status,
-      error,
-      now(),
-      hook.id,
-    ]);
-  } catch {
-    /* db may be closed */
-  }
-  return { status, error };
 }
 
 // ---------------------------------------------------------------------------------------------

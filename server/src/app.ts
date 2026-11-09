@@ -23,6 +23,7 @@ import { attachmentRoutes } from './routes/attachments.js';
 import { adminRoutes } from './routes/admin.js';
 import { integrationRoutes } from './routes/integrations.js';
 import { startMaintenance } from './services/maintenance.js';
+import { webhookSink } from './services/webhooks.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -45,12 +46,24 @@ export async function buildApp(overrides: Partial<Config> = {}): Promise<Fastify
   const ctx = new Ctx(config);
 
   const app = Fastify({
-    logger: config.logLevel === 'silent' ? false : { level: config.logLevel },
+    logger:
+      config.logLevel === 'silent'
+        ? false
+        : {
+            level: config.logLevel,
+            // Never write API tokens passed as ?token= (event streams, download links, VCS hooks) to logs.
+            serializers: { req: (req) => ({ method: req.method, url: redactUrl(req.url), remoteAddress: req.ip }) },
+          },
     trustProxy: config.trustProxy,
     bodyLimit: 5 * 1024 * 1024,
-    ajv: { customOptions: { removeAdditional: true, coerceTypes: 'array', useDefaults: true, allErrors: false } },
+    ajv: { customOptions: { removeAdditional: 'all', coerceTypes: 'array', useDefaults: true, allErrors: false } },
   });
   app.decorate('ctx', ctx);
+  // Built-in activity sinks. Integrations add their own with ctx.onActivity().
+  ctx.onActivity('realtime', (projectId, activity) =>
+    ctx.events.publish(`project:${projectId}`, { type: 'activity', project_id: projectId, data: activity }),
+  );
+  ctx.onActivity('webhooks', webhookSink(ctx));
   app.decorateRequest('user', null);
   app.addHook('onClose', async () => ctx.close());
 
@@ -89,7 +102,20 @@ export async function buildApp(overrides: Partial<Config> = {}): Promise<Fastify
 
   // ---- Authentication
   app.addHook('onRequest', async (req) => {
-    req.user = authenticate(ctx, req);
+    const auth = authenticate(ctx, req);
+    req.user = auth.user;
+    // CSRF: browsers attach the session cookie to cross-site requests, so cookie-authenticated
+    // mutations must come from our own origin. Token-authenticated API clients are unaffected.
+    if (auth.via === 'cookie' && !SAFE_METHODS.has(req.method) && !sameOrigin(req, config.baseUrl)) {
+      throw new ApiError(403, 'csrf_rejected', 'Cross-site request rejected.', 'Send requests from the Tracker web app, or authenticate with an API token.');
+    }
+  });
+
+  app.addHook('onSend', async (req, reply, payload) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    if (!req.url.startsWith('/api/docs')) reply.header('X-Frame-Options', 'DENY');
+    return payload;
   });
 
   app.setErrorHandler((err: any, req, reply) => {
@@ -152,14 +178,19 @@ export async function buildApp(overrides: Partial<Config> = {}): Promise<Fastify
     if (req.url.startsWith('/api/') || !webDist || req.method !== 'GET' || looksLikeFile) {
       return reply.status(404).send({ kind: 'error', code: 'route_not_found', error: `No route for ${req.method} ${req.url.split('?')[0]}` });
     }
-    return reply.header('Cache-Control', 'no-cache').sendFile('index.html');
+    return reply.header('Cache-Control', 'no-cache').header('Content-Security-Policy', SPA_CSP).sendFile('index.html');
   });
 
   startMaintenance(app);
   return app;
 }
 
-function authenticate(ctx: Ctx, req: FastifyRequest): User | null {
+interface Auth {
+  user: User | null;
+  via: 'token' | 'cookie' | null;
+}
+
+function authenticate(ctx: Ctx, req: FastifyRequest): Auth {
   const header = (req.headers['x-trackertoken'] as string | undefined) ?? undefined;
   const bearer = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
   let token = header ?? bearer;
@@ -167,7 +198,7 @@ function authenticate(ctx: Ctx, req: FastifyRequest): User | null {
   if (token) {
     const u = ctx.db.get<User>('SELECT * FROM users WHERE api_token = ? AND is_active = 1', [token]);
     if (!u) throw unauthenticated('Invalid API token.');
-    return u;
+    return { user: u, via: 'token' };
   }
   const session = req.cookies?.[SESSION_COOKIE];
   if (session) {
@@ -176,9 +207,44 @@ function authenticate(ctx: Ctx, req: FastifyRequest): User | null {
         WHERE s.token_hash = ? AND s.expires_at > ? AND u.is_active = 1`,
       [sha256(session), new Date().toISOString()],
     );
-    return u ?? null;
+    if (u) return { user: u, via: 'cookie' };
   }
-  return null;
+  return { user: null, via: null };
+}
+
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/** True when the request's Origin (or Referer) is this server, by BASE_URL or by the Host header. */
+function sameOrigin(req: FastifyRequest, baseUrl: string): boolean {
+  let origin = req.headers.origin;
+  if (!origin && req.headers.referer) {
+    try {
+      origin = new URL(req.headers.referer).origin;
+    } catch {
+      return false;
+    }
+  }
+  if (!origin || origin === 'null') return false;
+  const allowed = new Set([new URL(baseUrl).origin, `${req.protocol}://${req.headers.host}`]);
+  return allowed.has(origin);
+}
+
+const SPA_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "connect-src 'self'",
+  "font-src 'self' data:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+/** Remove credentials from a URL before it is logged. */
+export function redactUrl(url: string): string {
+  return url.replace(/([?&]token=)[^&#]*/gi, '$1[REDACTED]');
 }
 
 export function requireUser(req: FastifyRequest): User {

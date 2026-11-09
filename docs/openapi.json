@@ -2304,7 +2304,8 @@
         "tags": [
           "Account"
         ],
-        "description": "Ends the current browser session.",
+        "description": "Ends the current browser session (a no-op without one).",
+        "security": [],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -9576,54 +9577,11 @@
     },
     "/api/v1/integrations/vcs": {
       "post": {
-        "summary": "GitHub / GitLab / Gitea push webhook",
+        "summary": "GitHub / GitLab / Gitea / Bitbucket push webhook",
         "tags": [
           "Integrations"
         ],
-        "description": "Point a repository push webhook (content type application/json) at `/api/v1/integrations/vcs?token=<your API token>`. Each pushed commit is processed like POST /source_commits. Commits are attributed to the token owner, with the commit author shown in the comment.",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": true,
-                "type": "object",
-                "properties": {
-                  "commits": {
-                    "type": "array",
-                    "items": {
-                      "additionalProperties": true,
-                      "type": "object",
-                      "required": [
-                        "message"
-                      ],
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "url": {
-                          "type": "string"
-                        },
-                        "author": {
-                          "additionalProperties": true,
-                          "type": "object",
-                          "properties": {
-                            "name": {
-                              "type": "string"
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
+        "description": "Point a repository push webhook (content type application/json) at `/api/v1/integrations/vcs?token=<your API token>`. The provider is detected from its event header (`X-GitHub-Event`, `X-Gitlab-Event`, `X-Gitea-Event`, `X-Event-Key`); any other JSON body with a `commits: [{ id, message, url, author: { name } }]` array is also accepted. Each pushed commit is processed like POST /source_commits. Commits are attributed to the token owner, with the commit author shown in the comment. Non-push events (e.g. pings) are acknowledged with `processed: 0`.",
         "parameters": [
           {
             "schema": {
@@ -9642,10 +9600,14 @@
                 "schema": {
                   "type": "object",
                   "required": [
+                    "provider",
                     "processed",
                     "results"
                   ],
                   "properties": {
+                    "provider": {
+                      "type": "string"
+                    },
                     "processed": {
                       "type": "integer"
                     },

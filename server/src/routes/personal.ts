@@ -5,7 +5,7 @@ import { ref, Ok, Pagination } from '../schemas.js';
 import { listActivities, notificationJson } from '../services/activity.js';
 import { hydrate, type StoryRow } from '../services/stories.js';
 import { access } from '../services/projects.js';
-import { badRequest, notFound } from '../lib/errors.js';
+import { ApiError, badRequest, notFound } from '../lib/errors.js';
 import { now, type Row } from '../db/index.js';
 import type { StreamEvent } from '../services/context.js';
 
@@ -216,10 +216,7 @@ export async function personalRoutes(app: FastifyInstance) {
   );
 
   // ------------------------------------------------------------------ Realtime (Server-Sent Events)
-  const streams = new Set<() => void>();
-  app.addHook('onClose', async () => {
-    for (const end of [...streams]) end();
-  });
+  app.addHook('onClose', async () => ctx.streams.closeAll());
   app.get(
     '/events',
     {
@@ -244,6 +241,15 @@ Events:
         .map(Number)
         .filter((n) => n > 0);
       for (const id of ids) access(ctx, id, u, 'viewer');
+      let release: (() => void) | null = null;
+      const end = () => {
+        close();
+        reply.raw.end();
+      };
+      release = ctx.streams.open(u.id, end);
+      if (!release) {
+        throw new ApiError(429, 'too_many_requests', `Too many open event streams (limit ${ctx.config.maxStreamsPerUser}).`, 'Close other tabs or reuse one connection.');
+      }
       reply.hijack();
       const res = reply.raw;
       res.writeHead(200, {
@@ -257,16 +263,11 @@ Events:
       const channels = [...ids.map((id) => `project:${id}`), `user:${u.id}`];
       for (const ch of channels) ctx.events.on(ch, send);
       const ping = setInterval(() => res.write(`event: ping\ndata: {}\n\n`), 25_000);
-      const close = () => {
+      function close() {
         clearInterval(ping);
         for (const ch of channels) ctx.events.off(ch, send);
-        streams.delete(end);
-      };
-      const end = () => {
-        close();
-        res.end();
-      };
-      streams.add(end);
+        release?.();
+      }
       req.raw.on('close', close);
     },
   );

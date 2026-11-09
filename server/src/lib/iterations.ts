@@ -12,6 +12,7 @@
  * Everything here is pure and side-effect free so it can be unit tested and reused for analytics.
  */
 import { addDays, alignToWeekday, localDate, type Weekday } from './dates.js';
+import { IN_PROGRESS_STATES, isEstimable, TYPE_RULES, UNSTARTED_STATES, type StoryType } from './workflow.js';
 
 export interface PlanProject {
   iteration_length: number;
@@ -75,13 +76,10 @@ export interface Plan {
   releases: ReleaseProjection[];
 }
 
-const IN_PROGRESS = new Set(['started', 'finished', 'delivered', 'rejected']);
-
 export function storyPoints(s: Pick<PlanStory, 'story_type' | 'estimate'>, project: Pick<PlanProject, 'bugs_and_chores_are_estimatable'>): number {
   if (s.estimate == null || s.estimate <= 0) return 0;
-  if (s.story_type === 'feature') return s.estimate;
-  if ((s.story_type === 'bug' || s.story_type === 'chore') && project.bugs_and_chores_are_estimatable) return s.estimate;
-  return 0;
+  if (!(s.story_type in TYPE_RULES)) return 0;
+  return isEstimable(s.story_type as StoryType, project.bugs_and_chores_are_estimatable) ? s.estimate : 0;
 }
 
 /** Lazily computes iteration date bounds, taking per-iteration length overrides into account. */
@@ -153,7 +151,7 @@ export function computePlan(
   // ---- Done iterations: bucket accepted stories by local acceptance date.
   const accepted = stories
     .filter((s) => s.current_state === 'accepted')
-    .sort((a, b) => (a.accepted_at ?? '').localeCompare(b.accepted_at ?? '') || a.position - b.position);
+    .sort((a, b) => (a.accepted_at ?? '').localeCompare(b.accepted_at ?? '') || a.position - b.position || a.id - b.id);
   const doneBuckets = new Map<number, PlanStory[]>();
   const currentAccepted: PlanStory[] = [];
   for (const s of accepted) {
@@ -199,9 +197,9 @@ export function computePlan(
   const capacityOf = (n: number) => (velocity * cal.strength(n) * cal.length(n)) / project.iteration_length;
 
   // ---- Current + backlog
-  const byPos = (a: PlanStory, b: PlanStory) => a.position - b.position;
-  const inProgress = stories.filter((s) => IN_PROGRESS.has(s.current_state)).sort(byPos);
-  const unstarted = stories.filter((s) => s.current_state === 'unstarted' || s.current_state === 'planned').sort(byPos);
+  const byPos = (a: PlanStory, b: PlanStory) => a.position - b.position || a.id - b.id;
+  const inProgress = stories.filter((s) => IN_PROGRESS_STATES.has(s.current_state)).sort(byPos);
+  const unstarted = stories.filter((s) => UNSTARTED_STATES.has(s.current_state)).sort(byPos);
   const icebox = stories.filter((s) => s.current_state === 'unscheduled').sort(byPos);
 
   const mk = (n: number, scope: IterationScope): PlannedIteration => ({
@@ -272,6 +270,7 @@ export function computePlan(
 
   const releases: ReleaseProjection[] = stories
     .filter((s) => s.story_type === 'release' && s.current_state !== 'accepted')
+    .sort(byPos)
     .map((s) => {
       const it = iterationOf.get(s.id);
       const projected = it ? addDays(it.finish, -1) : null;

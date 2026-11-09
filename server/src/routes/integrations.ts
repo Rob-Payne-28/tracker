@@ -3,6 +3,8 @@ import { Type } from '@sinclair/typebox';
 import { requireUser } from '../app.js';
 import { access } from '../services/projects.js';
 import { getStoryRow, updateStory } from '../services/stories.js';
+import { PROGRESS_ORDER } from '../lib/workflow.js';
+import { parsePush } from '../services/vcs.js';
 import { createComment } from './story_parts.js';
 import type { Ctx } from '../services/context.js';
 import type { User } from '../services/people.js';
@@ -52,8 +54,7 @@ export function processCommit(ctx: Ctx, user: User, commit: CommitInput) {
         let target: any = action === 'deliver' ? 'delivered' : 'finished';
         if (story.story_type === 'chore') target = 'accepted';
         if (story.story_type === 'release') target = null;
-        const order = ['unscheduled', 'unstarted', 'started', 'rejected', 'finished', 'delivered', 'accepted'];
-        if (target && order.indexOf(target) > order.indexOf(story.current_state)) {
+        if (target && PROGRESS_ORDER.indexOf(target) > PROGRESS_ORDER.indexOf(story.current_state)) {
           updateStory(ctx, a, user, story.id, { current_state: target });
         }
       }
@@ -103,40 +104,18 @@ export async function integrationRoutes(app: FastifyInstance) {
       config: { allowQueryToken: true },
       schema: {
         tags: ['Integrations'],
-        summary: 'GitHub / GitLab / Gitea push webhook',
+        summary: 'GitHub / GitLab / Gitea / Bitbucket push webhook',
         description:
-          'Point a repository push webhook (content type application/json) at `/api/v1/integrations/vcs?token=<your API token>`. Each pushed commit is processed like POST /source_commits. Commits are attributed to the token owner, with the commit author shown in the comment.',
+          'Point a repository push webhook (content type application/json) at `/api/v1/integrations/vcs?token=<your API token>`. The provider is detected from its event header (`X-GitHub-Event`, `X-Gitlab-Event`, `X-Gitea-Event`, `X-Event-Key`); any other JSON body with a `commits: [{ id, message, url, author: { name } }]` array is also accepted. Each pushed commit is processed like POST /source_commits. Commits are attributed to the token owner, with the commit author shown in the comment. Non-push events (e.g. pings) are acknowledged with `processed: 0`.',
         querystring: Type.Object({ token: Type.Optional(Type.String()) }),
-        body: Type.Object(
-          {
-            commits: Type.Optional(
-              Type.Array(
-                Type.Object(
-                  {
-                    id: Type.Optional(Type.String()),
-                    message: Type.String(),
-                    url: Type.Optional(Type.String()),
-                    author: Type.Optional(Type.Object({ name: Type.Optional(Type.String()) }, { additionalProperties: true })),
-                  },
-                  { additionalProperties: true },
-                ),
-              ),
-            ),
-          },
-          { additionalProperties: true },
-        ),
-        response: { 200: Type.Object({ processed: Type.Integer(), results: Result }) },
+        response: { 200: Type.Object({ provider: Type.String(), processed: Type.Integer(), results: Result }) },
       },
     },
     async (req) => {
       const u = requireUser(req);
-      const body = req.body as any;
-      const kind = req.headers['x-github-event'] ? 'github' : req.headers['x-gitlab-event'] ? 'gitlab' : req.headers['x-gitea-event'] ? 'gitea' : 'other';
-      const results = [];
-      for (const c of body.commits ?? []) {
-        results.push(...processCommit(ctx, u, { message: c.message, commit_id: c.id, url: c.url, author: c.author?.name, commit_type: kind }));
-      }
-      return { processed: (body.commits ?? []).length, results };
+      const { provider, commits } = parsePush(req.headers, req.body);
+      const results = commits.flatMap((c) => processCommit(ctx, u, { message: c.message, commit_id: c.id, url: c.url, author: c.author, commit_type: provider }));
+      return { provider, processed: commits.length, results };
     },
   );
 }

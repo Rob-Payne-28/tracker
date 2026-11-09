@@ -9,6 +9,7 @@ import { isValidTimeZone } from '../lib/dates.js';
 import { ref, Ok } from '../schemas.js';
 import type { Ctx } from '../services/context.js';
 
+const DUMMY_HASH = hashPassword(randomToken(16));
 const attempts = new Map<string, { n: number; until: number }>();
 function throttle(key: string) {
   const a = attempts.get(key);
@@ -18,6 +19,8 @@ function failed(key: string) {
   const a = attempts.get(key);
   const n = a && a.until > Date.now() ? a.n + 1 : 1;
   attempts.set(key, { n, until: Date.now() + 10 * 60_000 });
+  // Bound memory: drop expired entries once the table grows.
+  if (attempts.size > 10_000) for (const [k, v] of attempts) if (v.until <= Date.now()) attempts.delete(k);
 }
 
 export function startSession(ctx: Ctx, reply: FastifyReply, userId: number) {
@@ -135,7 +138,9 @@ export async function authRoutes(app: FastifyInstance) {
       const key = `${req.ip}:${String(email).toLowerCase()}`;
       throttle(key);
       const u = ctx.db.get<User>('SELECT * FROM users WHERE (email = ? OR username = ?) AND is_active = 1', [email.trim(), email.trim()]);
-      if (!u || !verifyPassword(password, u.password_hash)) {
+      // Always run a hash comparison so response time doesn't reveal whether the account exists.
+      const valid = verifyPassword(password, u?.password_hash ?? DUMMY_HASH);
+      if (!u || !valid) {
         failed(key);
         throw unauthenticated('Invalid email or password.');
       }
@@ -147,7 +152,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post(
     '/auth/logout',
-    { schema: { tags: ['Account'], summary: 'Sign out', description: 'Ends the current browser session.', response: { 200: ref(Ok) } } },
+    { schema: { tags: ['Account'], summary: 'Sign out', description: 'Ends the current browser session (a no-op without one).', security: [], response: { 200: ref(Ok) } } },
     async (req, reply) => {
       const token = req.cookies[SESSION_COOKIE];
       if (token) ctx.db.run('DELETE FROM sessions WHERE token_hash = ?', [sha256(token)]);
@@ -319,6 +324,11 @@ export async function authRoutes(app: FastifyInstance) {
         upd.password_hash = hashPassword(b.new_password);
       }
       if (Object.keys(upd).length) ctx.db.update('users', u.id, { ...upd, updated_at: now() });
+      if (upd.password_hash) {
+        // Revoke every other session; keep the one making this request (if any).
+        const current = req.cookies[SESSION_COOKIE];
+        ctx.db.run('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?', [u.id, current ? sha256(current) : '']);
+      }
       return meJson(ctx.db.get<User>('SELECT * FROM users WHERE id = ?', [u.id])!);
     },
   );

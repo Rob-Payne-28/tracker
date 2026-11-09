@@ -144,11 +144,16 @@ Every 6 hours, and at startup, Tracker:
 
 ## Security notes
 
-- Passwords are hashed with scrypt.
-- API tokens act as passwords. A user can regenerate theirs from their profile, and the old token stops working immediately.
-- Sign-in attempts are rate limited per IP address and account.
+- Passwords are hashed with scrypt. Changing your password signs out your other sessions.
+- API tokens act as passwords. A user can regenerate theirs from their profile, and the old token stops working immediately. Tokens passed in URLs (`?token=`, used for event streams, download links and repository webhooks) are redacted from logs.
+- Sign-in attempts are rate limited per IP address and account, and failed sign-ins take the same time whether or not the account exists.
+- **CSRF**: requests authenticated with the browser session cookie that change data must come from Tracker's own origin (checked using the `Origin` or `Referer` header). API clients that use tokens are unaffected. If you serve Tracker under several hostnames, set `BASE_URL` to the one people use.
+- **SSRF**: webhooks can't target private, loopback, link-local or other non-public addresses. This is checked when a webhook is saved and again when Tracker connects, which defeats DNS rebinding. Redirects are never followed. Set `WEBHOOK_ALLOW_PRIVATE=true` only if you need to deliver webhooks inside your network.
+- Request bodies are restricted to documented fields. Unknown fields are dropped before they reach the application.
+- Response headers: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy`. The web app is served with a strict `Content-Security-Policy` (scripts from the same origin only).
 - Uploaded files are served with `Content-Security-Policy: sandbox` and `nosniff`. Only safe media types are shown inline.
-- Webhook deliveries are signed (`X-Tracker-Signature`). Webhooks can target any URL that a project owner enters, including addresses on your internal network. If that's a concern, restrict outbound traffic from the container at the network level.
+- Each user can have at most `MAX_STREAMS_PER_USER` live-update connections open.
+- Project owners can invite new people by email, which creates an account even when open sign-up is disabled. If your instance should be strictly admin-provisioned, keep that in mind when deciding who may create projects.
 
 ## Sizing
 

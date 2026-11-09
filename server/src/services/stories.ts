@@ -7,18 +7,9 @@ import { badRequest, notFound } from '../lib/errors.js';
 import { now, type Row } from '../db/index.js';
 import { isValidDate } from '../lib/dates.js';
 
-export const STORY_TYPES = ['feature', 'bug', 'chore', 'release'] as const;
-export const STORY_STATES = ['unscheduled', 'unstarted', 'started', 'finished', 'delivered', 'rejected', 'accepted'] as const;
-export type StoryType = (typeof STORY_TYPES)[number];
-export type StoryState = (typeof STORY_STATES)[number];
+import { isAllowedState, isEstimable, STARTED_STATES, TYPE_RULES, transitionVerb, type StoryState, type StoryType } from '../lib/workflow.js';
 
-const ALLOWED_STATES: Record<StoryType, readonly StoryState[]> = {
-  feature: STORY_STATES,
-  bug: STORY_STATES,
-  chore: ['unscheduled', 'unstarted', 'started', 'accepted'],
-  release: ['unscheduled', 'unstarted', 'accepted'],
-};
-const STARTED_STATES = new Set(['started', 'finished', 'delivered', 'rejected', 'accepted']);
+export { STORY_STATES, STORY_TYPES, type StoryState, type StoryType } from '../lib/workflow.js';
 
 export interface StoryRow {
   id: number;
@@ -336,7 +327,7 @@ const bottomOfBacklog = (ctx: Ctx, pid: number) => edgePosition(ctx, pid, "curre
 // Validation helpers
 
 function estimatable(project: Project, type: StoryType) {
-  return type === 'feature' || ((type === 'bug' || type === 'chore') && !!project.bugs_and_chores_are_estimatable);
+  return isEstimable(type, project.bugs_and_chores_are_estimatable);
 }
 
 function validateEstimate(project: Project, type: StoryType, estimate: number | null | undefined) {
@@ -430,11 +421,11 @@ export function createStory(ctx: Ctx, acc: Access, user: User | null, input: Sto
     if (!name) throw badRequest('Story name is required.');
     const type: StoryType = input.story_type ?? 'feature';
     let state: StoryState = input.current_state ?? 'unscheduled';
-    if (!ALLOWED_STATES[type].includes(state)) throw badRequest(`A ${type} cannot be in state "${state}".`);
+    if (!isAllowedState(type, state)) throw badRequest(`A ${type} cannot be in state "${state}".`);
     const estimate = input.estimate ?? null;
     validateEstimate(project, type, estimate);
     if (
-      type === 'feature' &&
+      TYPE_RULES[type].requiresEstimateToStart &&
       estimate == null &&
       STARTED_STATES.has(state) &&
       pointScale(project).length > 0 &&
@@ -543,16 +534,6 @@ function notifyMentions(ctx: Ctx, projectId: number, user: User | null, storyId:
 // ---------------------------------------------------------------------------------------------
 // Update
 
-const STATE_VERBS: Record<string, string> = {
-  started: 'started',
-  finished: 'finished',
-  delivered: 'delivered',
-  accepted: 'accepted',
-  rejected: 'rejected',
-  unstarted: 'unstarted',
-  unscheduled: 'moved into the icebox',
-};
-
 export function updateStory(ctx: Ctx, acc: Access, user: User | null, storyId: number, input: StoryInput): StoryRow {
   return ctx.tx(() => {
     let { project } = acc;
@@ -569,19 +550,19 @@ export function updateStory(ctx: Ctx, acc: Access, user: User | null, storyId: n
 
     // Changing type may force a compatible state / clear estimate.
     if (input.story_type && input.story_type !== before.story_type) {
-      if (!ALLOWED_STATES[type].includes(state)) {
+      if (!isAllowedState(type, state)) {
         if (input.current_state) throw badRequest(`A ${type} cannot be in state "${state}".`);
-        state = type === 'chore' ? 'started' : 'unstarted';
+        state = TYPE_RULES[type].fallbackState;
       }
     }
-    if (!ALLOWED_STATES[type].includes(state)) throw badRequest(`A ${type} cannot be in state "${state}".`);
+    if (!isAllowedState(type, state)) throw badRequest(`A ${type} cannot be in state "${state}".`);
 
     let estimate = input.estimate !== undefined ? input.estimate : before.estimate;
     if (input.estimate === undefined && !estimatable(project, type)) estimate = null;
     validateEstimate(project, type, estimate);
 
     if (
-      type === 'feature' &&
+      TYPE_RULES[type].requiresEstimateToStart &&
       estimate == null &&
       STARTED_STATES.has(state) &&
       state !== before.current_state &&
@@ -677,8 +658,7 @@ export function updateStory(ctx: Ctx, acc: Access, user: User | null, storyId: n
     let highlight = 'edited';
     let message = `edited "${after.name}"`;
     if (stateChanged) {
-      highlight = before.current_state === 'rejected' && state === 'started' ? 'restarted' : STATE_VERBS[state];
-      if (before.current_state === 'unscheduled' && state === 'unstarted') highlight = 'moved into the backlog';
+      highlight = transitionVerb(before.current_state, state);
       message = `${highlight} "${after.name}"`;
     } else if (Object.keys(orig).length === 0 && moved) {
       highlight = 'moved';
@@ -751,7 +731,7 @@ function moveToProject(ctx: Ctx, acc: Access, user: User | null, story: StoryRow
   let estimate = story.estimate;
   if (estimate != null && (!pointScale(target).includes(estimate) || !estimatable(target, story.story_type))) estimate = null;
   let state = story.current_state;
-  if (story.story_type === 'feature' && estimate == null && STARTED_STATES.has(state) && state !== 'accepted') state = 'unstarted';
+  if (TYPE_RULES[story.story_type].requiresEstimateToStart && estimate == null && STARTED_STATES.has(state) && state !== 'accepted') state = 'unstarted';
   const position = state === 'unscheduled' ? topOfIcebox(ctx, target.id) : bottomOfBacklog(ctx, target.id);
   ctx.db.update('stories', story.id, {
     project_id: target.id,

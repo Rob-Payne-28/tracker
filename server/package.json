@@ -9,7 +9,8 @@
     "start": "node --disable-warning=ExperimentalWarning dist/index.js",
     "test": "node --disable-warning=ExperimentalWarning --import tsx --test test/*.test.ts",
     "openapi": "tsx src/scripts/openapi.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:coverage": "node --disable-warning=ExperimentalWarning --import tsx --test --experimental-test-coverage --test-coverage-include=src/** --test-coverage-exclude=src/scripts/** test/*.test.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

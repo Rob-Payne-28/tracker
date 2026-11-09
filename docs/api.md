@@ -24,6 +24,8 @@ curl -H "X-TrackerToken: $TOKEN" $TRACKER/api/v1/me
 
 `Authorization: Bearer $TOKEN` also works. Browsers authenticate with a session cookie from `POST /auth/login`.
 
+Requests that change data using the session cookie must send an `Origin` (or `Referer`) header matching the server. Browsers do this automatically; otherwise the request is rejected with `403 csrf_rejected`. Token-authenticated requests are not subject to this check.
+
 `?token=` is accepted **only** on two endpoints: `GET /events` (because a browser `EventSource` can't set headers) and `GET /attachments/{id}/download`.
 
 Regenerate a token with `POST /me/regenerate_api_token`.
@@ -58,7 +60,7 @@ Validation failures also include `validation_errors: [{ field, problem }]`.
 |---|---|
 | 400 | `invalid_parameter` |
 | 401 | `unauthenticated` |
-| 403 | `unauthorized_operation` |
+| 403 | `unauthorized_operation`, `csrf_rejected` |
 | 404 | `unfound_resource`, `route_not_found` |
 | 409 | `conflict` |
 | 413 | `request_too_large` |
@@ -294,7 +296,7 @@ Each delivery carries these headers:
 - `X-Tracker-Signature: sha256=<hex HMAC-SHA256 of the raw body, keyed with the webhook secret>`
 - `X-Tracker-Webhook-Id`
 
-Deliveries time out after 10 seconds. The status of the last delivery is recorded on the webhook (`last_status`, `last_error`). `POST /webhooks/{id}/test` sends a `ping` payload.
+Deliveries time out after 10 seconds and never follow redirects. Webhook URLs must be publicly reachable unless the administrator sets `WEBHOOK_ALLOW_PRIVATE=true`. The status of the last delivery is recorded on the webhook (`last_status`, `last_error`). `POST /webhooks/{id}/test` sends a `ping` payload.
 
 Verify the signature in Node:
 
@@ -338,7 +340,7 @@ Stories never move backwards.
 
 You can send commits in two ways.
 
-**Option 1: a repository push webhook.** This works with GitHub, GitLab and Gitea. Use content type `application/json` and this URL:
+**Option 1: a repository push webhook.** This works with GitHub, GitLab, Gitea/Forgejo and Bitbucket. Tracker detects the provider from its event header. Any other JSON body with a GitHub-style `commits` array is also accepted. Use content type `application/json` and this URL:
 
 ```
 https://tracker.example.com/api/v1/integrations/vcs?token=<API token>

@@ -93,6 +93,8 @@ All configuration is through environment variables:
 | `MAX_UPLOAD_MB` | `50` | Maximum size of an attachment |
 | `SESSION_DAYS` | `30` | How long a browser session lasts |
 | `TRUST_PROXY` | `false` | Set to `true` behind a reverse proxy |
+| `WEBHOOK_ALLOW_PRIVATE` | `false` | Allow webhooks to private, loopback or link-local addresses (blocked by default to prevent SSRF) |
+| `MAX_STREAMS_PER_USER` | `20` | Maximum number of simultaneous live-update connections per user |
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug` or `silent` |
 
 ## API
@@ -110,9 +112,28 @@ curl -H "X-TrackerToken: $TOKEN" http://localhost:3000/api/v1/projects
 ```sh
 npm install
 npm run dev          # API on :3000 (auto-reload) + Vite UI on :5173 (proxies /api)
-npm test             # server test suite (unit + API integration tests)
-npm run openapi      # regenerate docs/openapi.json
+npm test             # server test suite
+npm run test:coverage
+npm run typecheck    # server + web
+npm run build && npm run test:e2e   # browser end-to-end smoke test against the production build
+npm run openapi      # regenerate docs/openapi.json after an intentional API change
 ```
+
+The test suite is designed to make refactoring safe:
+
+| Suite | What it guards |
+|---|---|
+| `contract.test.ts` | The generated OpenAPI document must equal `docs/openapi.json`, so any API change shows up as a reviewable diff |
+| `authz.matrix.test.ts` | Calls **every** documented operation as an anonymous client, a non-member and a viewer. New routes are covered automatically |
+| `planning.property.test.ts` | Invariants of the planning engine (ordering, capacity, no back-filling, determinism) over 500 random projects |
+| `security.test.ts` | Mass assignment, SQL identifiers, CSRF, SSRF, headers, log redaction, sessions, throttling |
+| `workflow.test.ts` | The web UI's copy of the story workflow matches the server's |
+| `search.test.ts`, `api.test.ts`, `iterations.test.ts` | Behaviour of every search filter, the API end to end, and planning examples |
+| `e2e/smoke.test.mjs` | The production build in a real browser: setup, workflow, drag and drop, comments, live updates |
+
+CI (`.github/workflows/ci.yml`) runs all of these, checks the OpenAPI document is current, and builds and boots the Docker image.
+
+See [docs/architecture.md](docs/architecture.md) for how the code is organised and where to extend it.
 
 Layout:
 

@@ -52,6 +52,7 @@ export class Database {
   /** Insert a row from an object and return the new id. */
   insert(table: string, values: Record<string, SQLInputValue>): number {
     const keys = Object.keys(values);
+    assertIdentifiers(table, keys);
     const sql = `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${keys.map((k) => '$' + k).join(', ')})`;
     return this.run(sql, values).lastInsertRowid;
   }
@@ -59,6 +60,7 @@ export class Database {
   /** Update columns of a row by id. */
   update(table: string, id: number, values: Record<string, SQLInputValue>): void {
     const keys = Object.keys(values);
+    assertIdentifiers(table, keys);
     if (!keys.length) return;
     const sql = `UPDATE ${table} SET ${keys.map((k) => `${k} = $${k}`).join(', ')} WHERE id = $__id`;
     this.run(sql, { ...values, __id: id });
@@ -87,3 +89,11 @@ export class Database {
 }
 
 export const now = () => new Date().toISOString();
+
+const IDENT = /^[a-z_][a-z0-9_]*$/;
+/** Table/column names are interpolated into SQL, so they must be plain identifiers (defence in depth). */
+function assertIdentifiers(table: string, columns: string[]) {
+  for (const id of [table, ...columns]) {
+    if (!IDENT.test(id)) throw new Error(`Unsafe SQL identifier: ${JSON.stringify(id)}`);
+  }
+}

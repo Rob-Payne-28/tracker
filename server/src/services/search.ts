@@ -41,11 +41,6 @@ export interface ParsedQuery {
   includeDone: boolean;
 }
 
-const KEYS = new Set([
-  'label', 'type', 'state', 'owner', 'requester', 'follower', 'reviewer', 'mywork', 'id', 'estimate', 'epic',
-  'is', 'has', 'name', 'description', 'created_since', 'created_before', 'updated_since', 'updated_before',
-  'accepted_since', 'accepted_before', 'includedone',
-]);
 const ALIASES: Record<string, string> = { story_type: 'type', owned_by: 'owner', requested_by: 'requester', labels: 'label', is_blocked: 'is' };
 
 export function parseQuery(q: string): ParsedQuery {
@@ -56,7 +51,7 @@ export function parseQuery(q: string): ParsedQuery {
       let key = m[2].toLowerCase();
       key = ALIASES[key] ?? key;
       const raw = m[3] ?? m[4] ?? '';
-      if (!KEYS.has(key)) {
+      if (!(key in FILTERS) && key !== 'includedone') {
         out.terms.push({ text: m[0].replace(/^-/, ''), negate: m[1] === '-' });
         continue;
       }
@@ -89,27 +84,154 @@ export interface SearchResult {
   query: string;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Filter registry. Each filter turns its (lower-cased) values into a story predicate. To add a
+// filter, register it here or call registerSearchFilter() — parsing, negation (`-key:`), comma
+// alternatives and documentation of unknown keys all follow automatically.
+
+export interface SearchContext {
+  ctx: Ctx;
+  project: Project;
+  userId: number | null;
+  /** Resolve "me", a username, initials, a name, first name or email to member ids. */
+  personIds(value: string): number[];
+  /** story id → reviewer ids (loaded lazily, once per search). */
+  reviewers(): Map<number, Set<number>>;
+}
+
+export type StoryPredicate = (s: StoryJson) => boolean;
+export type FilterHandler = (values: string[], sc: SearchContext) => StoryPredicate;
+
+const peopleFilter =
+  (get: (s: StoryJson, sc: SearchContext) => number[]): FilterHandler =>
+  (vals, sc) => {
+    const set = new Set(vals.flatMap((v) => sc.personIds(v)));
+    return (s) => get(s, sc).some((id) => set.has(id));
+  };
+
+const dateFilter =
+  (field: 'created_at' | 'updated_at' | 'accepted_at', dir: 'since' | 'before'): FilterHandler =>
+  (vals) =>
+  (s) => {
+    const v = s[field];
+    if (!v) return false;
+    return vals.some((d) => (dir === 'since' ? v.slice(0, 10) >= d : v.slice(0, 10) < d));
+  };
+
+const IS_VALUES: Record<string, StoryPredicate> = {
+  blocked: (s) => s.blocker_count > 0,
+  blocking: (s) => s.blocking_story_ids.length > 0,
+  unestimated: (s) => s.story_type === 'feature' && s.estimate == null,
+  estimated: (s) => s.estimate != null,
+};
+
+const HAS_VALUES: Record<string, StoryPredicate> = {
+  attachment: (s) => s.attachment_count > 0,
+  comment: (s) => s.comment_count > 0,
+  task: (s) => s.tasks_total > 0,
+  blocker: (s) => s.blocker_count > 0,
+  description: (s) => s.description.trim() !== '',
+  label: (s) => s.labels.length > 0,
+  owner: (s) => s.owner_ids.length > 0,
+  review: (s) => s.reviews_total > 0,
+  deadline: (s) => !!s.deadline,
+};
+const HAS_ALIASES: Record<string, string> = { attachments: 'attachment', file: 'attachment', comments: 'comment', tasks: 'task', blockers: 'blocker', labels: 'label', owners: 'owner', reviews: 'review' };
+
+const lookupValue = (table: Record<string, StoryPredicate>, key: string, v: string, aliases: Record<string, string> = {}) => {
+  const pred = table[aliases[v] ?? v];
+  if (!pred) throw badRequest(`Unknown ${key}: value "${v}". Use one of: ${Object.keys(table).join(', ')}.`);
+  return pred;
+};
+
+const FILTERS: Record<string, FilterHandler> = {
+  label: (vals) => (s) => s.labels.some((l) => vals.includes(l.name.toLowerCase())),
+  epic: (vals, sc) => {
+    const labelIds = new Set(
+      sc.ctx.db
+        .all('SELECT e.label_id, lower(e.name) AS name, lower(l.name) AS lname FROM epics e JOIN labels l ON l.id = e.label_id WHERE e.project_id = ?', [sc.project.id])
+        .filter((e) => vals.includes(e.name) || vals.includes(e.lname))
+        .map((e) => e.label_id as number),
+    );
+    return (s) => s.label_ids.some((id) => labelIds.has(id));
+  },
+  type: (vals) => (s) => vals.includes(s.story_type),
+  state: (vals) => (s) => vals.includes(s.current_state) || (vals.includes('done') && s.current_state === 'accepted'),
+  owner: peopleFilter((s) => s.owner_ids),
+  requester: peopleFilter((s) => (s.requested_by_id != null ? [s.requested_by_id] : [])),
+  follower: peopleFilter((s) => s.follower_ids),
+  reviewer: peopleFilter((s, sc) => [...(sc.reviewers().get(s.id) ?? [])]),
+  mywork: (vals, sc) => {
+    const owned = peopleFilter((s) => s.owner_ids)(vals, sc);
+    return (s) => s.current_state !== 'accepted' && owned(s);
+  },
+  id: (vals) => {
+    const set = new Set(vals.map((v) => Number(v.replace('#', ''))));
+    return (s) => set.has(s.id);
+  },
+  estimate: (vals) => (s) => vals.some((v) => (['none', 'unestimated', '-1'].includes(v) ? s.estimate == null : s.estimate === Number(v))),
+  is: (vals) => {
+    const preds = vals.map((v) => lookupValue(IS_VALUES, 'is', v));
+    return (s) => preds.some((p) => p(s));
+  },
+  has: (vals) => {
+    const preds = vals.map((v) => lookupValue(HAS_VALUES, 'has', v, HAS_ALIASES));
+    return (s) => preds.some((p) => p(s));
+  },
+  name: (vals) => (s) => vals.every((v) => s.name.toLowerCase().includes(v)),
+  description: (vals) => (s) => vals.every((v) => s.description.toLowerCase().includes(v)),
+  created_since: dateFilter('created_at', 'since'),
+  created_before: dateFilter('created_at', 'before'),
+  updated_since: dateFilter('updated_at', 'since'),
+  updated_before: dateFilter('updated_at', 'before'),
+  accepted_since: dateFilter('accepted_at', 'since'),
+  accepted_before: dateFilter('accepted_at', 'before'),
+};
+
+/** Extension point: add (or override) a search filter, e.g. registerSearchFilter('priority', …). */
+export function registerSearchFilter(key: string, handler: FilterHandler) {
+  if (!/^[a-z_]+$/.test(key)) throw new Error(`Invalid filter key "${key}"`);
+  FILTERS[key] = handler;
+}
+
+export const searchFilterKeys = () => Object.keys(FILTERS);
+
 export function searchStories(ctx: Ctx, project: Project, query: string, userId: number | null): StoryJson[] {
   const parsed = parseQuery(query);
   const db = ctx.db;
   const pid = project.id;
 
-  // Lookup tables
   const people = db.all(
     `SELECT u.id, lower(u.username) AS username, lower(u.initials) AS initials, lower(u.name) AS name, lower(u.email) AS email
        FROM users u JOIN memberships m ON m.user_id = u.id WHERE m.project_id = ?`,
     [pid],
   );
-  const personIds = (v: string): number[] => {
-    const s = v.toLowerCase().replace(/^@/, '');
-    if (s === 'me') {
-      if (!userId) throw badRequest('"me" requires authentication.');
-      return [userId];
-    }
-    return people.filter((p) => p.username === s || p.initials === s || p.name === s || p.email === s || p.name.split(' ')[0] === s).map((p) => p.id);
+  let reviewerCache: Map<number, Set<number>> | null = null;
+  const sc: SearchContext = {
+    ctx,
+    project,
+    userId,
+    personIds: (v) => {
+      const s = v.toLowerCase().replace(/^@/, '');
+      if (s === 'me') {
+        if (!userId) throw badRequest('"me" requires authentication.');
+        return [userId];
+      }
+      return people.filter((p) => p.username === s || p.initials === s || p.name === s || p.email === s || p.name.split(' ')[0] === s).map((p) => p.id);
+    },
+    reviewers: () => {
+      if (!reviewerCache) {
+        reviewerCache = new Map();
+        for (const r of db.all('SELECT r.story_id, r.reviewer_id FROM reviews r JOIN stories s ON s.id = r.story_id WHERE s.project_id = ?', [pid])) {
+          if (!reviewerCache.has(r.story_id)) reviewerCache.set(r.story_id, new Set());
+          reviewerCache.get(r.story_id)!.add(r.reviewer_id);
+        }
+      }
+      return reviewerCache;
+    },
   };
 
-  // Text matches across comments/tasks are computed in SQL for efficiency.
+  // Text matches across comments/tasks/labels are computed in SQL for efficiency.
   const textIds = (term: string) =>
     new Set(
       db
@@ -125,128 +247,17 @@ export function searchStories(ctx: Ctx, project: Project, query: string, userId:
         .map((r) => r.id as number),
     );
 
-  const rows = storyRows(ctx, pid);
-  let stories = hydrate(ctx, rows);
+  let stories = hydrate(ctx, storyRows(ctx, pid));
   if (!parsed.includeDone) stories = stories.filter((s) => s.current_state !== 'accepted');
 
   for (const term of parsed.terms) {
     const set = textIds(term.text);
     stories = stories.filter((s) => set.has(s.id) !== term.negate);
   }
-
-  const reviewsBy = new Map<number, Set<number>>();
-  if (parsed.filters.some((f) => f.key === 'reviewer')) {
-    for (const r of db.all('SELECT r.story_id, r.reviewer_id FROM reviews r JOIN stories s ON s.id = r.story_id WHERE s.project_id = ?', [pid])) {
-      if (!reviewsBy.has(r.story_id)) reviewsBy.set(r.story_id, new Set());
-      reviewsBy.get(r.story_id)!.add(r.reviewer_id);
-    }
-  }
-
   for (const f of parsed.filters) {
-    const vals = f.values.map((v) => v.toLowerCase());
-    let pred: (s: StoryJson) => boolean;
-    const dateCmp = (field: 'created_at' | 'updated_at' | 'accepted_at', dir: 'since' | 'before') => (s: StoryJson) => {
-      const v = s[field];
-      if (!v) return false;
-      return vals.some((d) => (dir === 'since' ? v.slice(0, 10) >= d : v.slice(0, 10) < d));
-    };
-    switch (f.key) {
-      case 'label':
-        pred = (s) => s.labels.some((l) => vals.includes(l.name.toLowerCase()));
-        break;
-      case 'epic': {
-        const labelIds = new Set(
-          db
-            .all('SELECT e.label_id, lower(e.name) AS name, lower(l.name) AS lname FROM epics e JOIN labels l ON l.id = e.label_id WHERE e.project_id = ?', [pid])
-            .filter((e) => vals.includes(e.name) || vals.includes(e.lname))
-            .map((e) => e.label_id as number),
-        );
-        pred = (s) => s.label_ids.some((id) => labelIds.has(id));
-        break;
-      }
-      case 'type':
-        pred = (s) => vals.includes(s.story_type);
-        break;
-      case 'state':
-        pred = (s) => vals.includes(s.current_state) || (vals.includes('done') && s.current_state === 'accepted');
-        break;
-      case 'owner': {
-        const set = new Set(vals.flatMap(personIds));
-        pred = (s) => s.owner_ids.some((id) => set.has(id));
-        break;
-      }
-      case 'requester': {
-        const set = new Set(vals.flatMap(personIds));
-        pred = (s) => s.requested_by_id != null && set.has(s.requested_by_id);
-        break;
-      }
-      case 'follower': {
-        const set = new Set(vals.flatMap(personIds));
-        pred = (s) => s.follower_ids.some((id) => set.has(id));
-        break;
-      }
-      case 'reviewer': {
-        const set = new Set(vals.flatMap(personIds));
-        pred = (s) => [...(reviewsBy.get(s.id) ?? [])].some((id) => set.has(id));
-        break;
-      }
-      case 'mywork': {
-        const set = new Set(vals.flatMap(personIds));
-        pred = (s) => s.current_state !== 'accepted' && s.owner_ids.some((id) => set.has(id));
-        break;
-      }
-      case 'id': {
-        const set = new Set(vals.map((v) => Number(v.replace('#', ''))));
-        pred = (s) => set.has(s.id);
-        break;
-      }
-      case 'estimate':
-        pred = (s) => vals.some((v) => (['none', 'unestimated', '-1'].includes(v) ? s.estimate == null : s.estimate === Number(v)));
-        break;
-      case 'is':
-        pred = (s) =>
-          vals.some((v) => {
-            switch (v) {
-              case 'blocked': return s.blocker_count > 0;
-              case 'blocking': return s.blocking_story_ids.length > 0;
-              case 'unestimated': return s.story_type === 'feature' && s.estimate == null;
-              case 'estimated': return s.estimate != null;
-              default: throw badRequest(`Unknown is: value "${v}".`);
-            }
-          });
-        break;
-      case 'has':
-        pred = (s) =>
-          vals.some((v) => {
-            switch (v) {
-              case 'attachment': case 'attachments': case 'file': return s.attachment_count > 0;
-              case 'comment': case 'comments': return s.comment_count > 0;
-              case 'task': case 'tasks': return s.tasks_total > 0;
-              case 'blocker': case 'blockers': return s.blocker_count > 0;
-              case 'description': return s.description.trim() !== '';
-              case 'label': case 'labels': return s.labels.length > 0;
-              case 'owner': case 'owners': return s.owner_ids.length > 0;
-              case 'review': case 'reviews': return s.reviews_total > 0;
-              case 'deadline': return !!s.deadline;
-              default: throw badRequest(`Unknown has: value "${v}".`);
-            }
-          });
-        break;
-      case 'name':
-        pred = (s) => vals.every((v) => s.name.toLowerCase().includes(v));
-        break;
-      case 'description':
-        pred = (s) => vals.every((v) => s.description.toLowerCase().includes(v));
-        break;
-      case 'created_since': pred = dateCmp('created_at', 'since'); break;
-      case 'created_before': pred = dateCmp('created_at', 'before'); break;
-      case 'updated_since': pred = dateCmp('updated_at', 'since'); break;
-      case 'updated_before': pred = dateCmp('updated_at', 'before'); break;
-      case 'accepted_since': pred = dateCmp('accepted_at', 'since'); break;
-      case 'accepted_before': pred = dateCmp('accepted_at', 'before'); break;
-      default:
-        continue;
-    }
+    const handler = FILTERS[f.key];
+    if (!handler) continue;
+    const pred = handler(f.values.map((v) => v.toLowerCase()), sc);
     stories = stories.filter((s) => pred(s) !== f.negate);
   }
   return stories;
