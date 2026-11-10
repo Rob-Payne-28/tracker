@@ -1,0 +1,22 @@
+services:
+  tracker:
+    build: .
+    image: tracker:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Public URL people use to reach Tracker (used in links, emails, webhooks and cookies).
+      BASE_URL: http://localhost:3000
+      # Set to "false" to make the instance invitation-only (can also be toggled in Administration).
+      ALLOW_SIGNUP: "true"
+      # Uncomment to send email notifications, invitations and password resets:
+      # SMTP_URL: smtps://user:password@smtp.example.com:465
+      # MAIL_FROM: Tracker <tracker@example.com>
+      # Set when running behind a reverse proxy that sets X-Forwarded-* headers:
+      # TRUST_PROXY: "true"
+    volumes:
+      - tracker-data:/data
+
+volumes:
+  tracker-data:

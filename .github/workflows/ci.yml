@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck, tests, API contract, e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck (server + web)
+        run: npm run typecheck
+      - name: Server tests (unit, property, authorization matrix, security, API) with coverage
+        run: npm run test:coverage
+      - name: OpenAPI document is up to date
+        run: npm run check:openapi
+      - name: Build
+        run: npm run build
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end smoke test
+        run: npm run test:e2e
+
+  docker:
+    name: Docker image builds and serves
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t tracker:ci .
+      - name: Container starts and is healthy
+        run: |
+          docker run -d --name tracker -p 3000:3000 tracker:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/healthz; then break; fi
+            sleep 1
+          done
+          curl -fsS http://localhost:3000/api/v1/instance
+          curl -fsS -o /dev/null http://localhost:3000/
+          curl -fsS -o /dev/null http://localhost:3000/api/docs
+      - if: failure()
+        run: docker logs tracker
